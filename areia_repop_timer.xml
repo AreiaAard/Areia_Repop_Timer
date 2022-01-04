@@ -172,6 +172,7 @@ function Config.display_zone_aliases(alias)
         return
     end
 
+    table.sort(display)
     Utility.msg_prim("@YAlias    @w: @YZone:")
     Utility.msg_sec("---------:-----------")
     for _, alias in ipairs(display) do
