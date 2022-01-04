@@ -8,10 +8,10 @@
     id="eb83ae87839b08cf69f80ad2"
     language="Lua"
     purpose="Track area repops"
-    save_state="n"
+    save_state="y"
     date_written="2021-12-30 15:00:00"
     requires="5.06"
-    version="0.01"
+    version="0.02"
     >
 <description trim="y">
 <![CDATA[
@@ -745,8 +745,16 @@ end
 -- Plugin Callbacks
 --------------------------------------------------
 
+function OnPluginConnect()
+    Send_GMCP_Packet("request room")
+end
+
 function OnPluginInstall()
     Utility.initialize()
+    if (IsConnected()) then
+        OnPluginConnect()
+    end
+    Utility.msg_prim("Plugin installed. Submit @Yart help @wfor help.")
 end
 
 function OnPluginEnable()
