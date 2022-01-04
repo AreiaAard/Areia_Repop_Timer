@@ -192,6 +192,13 @@ function Config.set_zone_alias(zone, alias)
 
     zone = zone:lower()
     alias = alias:lower()
+    if (zone == "remove") then
+        Config.get("zoneAliases")[alias] = nil
+        Config.save()
+        Utility.msg_prim(string.format("Removed zone alias %s.", alias))
+        return
+    end
+
     Config.get("zoneAliases")[alias] = zone
     Config.save()
     Config.display_zone_aliases(alias)
