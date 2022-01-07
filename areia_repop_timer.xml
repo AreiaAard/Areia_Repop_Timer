@@ -11,7 +11,7 @@
     save_state="y"
     date_written="2021-12-30 15:00:00"
     requires="5.06"
-    version="0.02"
+    version="0.03"
     >
 <description trim="y">
 <![CDATA[
@@ -397,7 +397,7 @@ function Timer.add_timer(name, minute, second, script)
     SetTimerOption(fullName, "send_to", sendto.script)
 end
 
-function Timer.convert_time(time)
+function Timer.convert_relative_time(time)
     local day, hour, minute, second = 0, 0, 0, 0
 
     local dayLength = 60 * 60 * 24
@@ -422,9 +422,10 @@ function Timer.convert_time(time)
     return {day=day, hour=hour, minute=minute, second=second}
 end
 
-function Timer.format_time(time)
-    local conversion = Timer.convert_time(time)
-    local msg = {}
+function Timer.format_relative_repop(senseData, now)
+    local conversion = Timer.convert_relative_time(senseData.nextRepop - now)
+    local approximate = senseData.certain and "" or "approximately "
+    local timeSpans = {}
 
     for _, span in ipairs{"day", "hour", "minute", "second"} do
         local spanCount = conversion[span]
@@ -432,11 +433,40 @@ function Timer.format_time(time)
             --local plural = spanCount > 1 and "s" or ""
             --local str = string.format("%d %s%s", spanCount, span, plural)
             local str = string.format("%d%s", spanCount, span:sub(1, 1))
-            table.insert(msg, str)
+            table.insert(timeSpans, str)
         end
     end
 
-    return table.concat(msg, ", ")
+    timeSpans = table.concat(timeSpans, ", ")
+    if (timeSpans == "") then
+        return "@Yhas passed"
+    end
+    return string.format("in %s@Y%s", approximate, timeSpans)
+end
+
+function Timer.convert_absolute_time(time)
+    return os.date("*t", time)
+end
+
+function Timer.format_absolute_repop(senseData)
+    local months = {
+        "Jan", "Feb", "Mar", "May", "Jun", "Jul",
+        "Aug", "Sep", "Oct", "Nov", "Dec",
+    }
+    local conversion = Timer.convert_absolute_time(senseData.nextRepop)
+    local approximate = senseData.certain and "" or "approximately "
+    local str = "at %s@Y%02d:%02d:%02d on %d %s %d"
+    return str:format(
+        approximate, conversion.hour, conversion.min, conversion.sec,
+        conversion.day, months[conversion.month], conversion.year
+    )
+end
+
+function Timer.format_repop(senseData, now)
+    if (senseData.nextRepop - now > 1800) then
+        return Timer.format_absolute_repop(senseData, now)
+    end
+    return Timer.format_relative_repop(senseData, now)
 end
 
 function Timer.get_area(trigger, line, wc)
@@ -529,17 +559,10 @@ function Timer.get_repop(zone)
         return string.format("@WNo repop data for %s.$C", zone)
     end
 
-    local formattedRepop = Timer.format_time(senseData.nextRepop - now)
-    if (formattedRepop == "") then
-        -- Possible if time is <= 0, which means the area has already
-        -- repopped, or is extremely close to repop.
-        return string.format("@W%s has repopped.$C", zone)
-    end
-
-    local certain = senseData.certain and "in" or "in approximately"
+    local formattedRepop = Timer.format_repop(senseData, now)
     return string.format(
-        "@WRepop of %s %s @Y%s@W.$C",
-        senseData.areaName, certain, formattedRepop
+        "@WRepop of %s %s@W.$C",
+        senseData.areaName, formattedRepop
     )
 end
 
