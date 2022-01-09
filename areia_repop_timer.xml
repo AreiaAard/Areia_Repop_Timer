@@ -90,6 +90,25 @@
         sequence="100"
     >
     </alias>
+
+    <alias
+        match="^ *art +config +absolute *$"
+        enabled="y"
+        script="Config.absolute"
+        regexp="y"
+        ignore_case="y"
+        sequence="100"
+    >
+    </alias>
+    <alias
+        match="^ *art +config +absolute +(?<threshold>\d+) *$"
+        enabled="y"
+        script="Config.absolute"
+        regexp="y"
+        ignore_case="y"
+        sequence="100"
+    >
+    </alias>
 </aliases>
 
 <script>
@@ -120,6 +139,7 @@ function Config.default()
         ["channel"] = "",
         ["zoneAliases"] = {},
         ["notify"] = true,
+        ["absoluteThreshold"] = 3600,
     }
     return serialize.save_simple(data)
 end
@@ -152,7 +172,7 @@ function Config.channel(alias, line, wc)
 
     val = Config.get("channel")
     val = val == "" and "plugin message" or val
-    Utility.msg_prim(string.format("Default channel is @Y%s", val))
+    Utility.msg_prim(string.format("Default channel is %s.", val))
 end
 
 function Config.display_zone_aliases(alias)
@@ -236,6 +256,24 @@ function Config.notify(alias, line, wc)
 
     val = Config.get("notify") and "on" or "off"
     Utility.msg_prim(string.format("Pre-repop notifications turned %s.", val))
+end
+
+function Config.absolute(alias, line, wc)
+    local threshold = tonumber(wc.threshold)
+    if (threshold) then
+        -- Receive arg as minutes, but store it as seconds.
+        Config.set("absoluteThreshold", threshold * 60)
+    end
+
+    threshold = Config.get("absoluteThreshold") / 60
+    if (threshold < 1) then
+        Utility.msg_prim("Absolute time formats turned off.")
+        return
+    end
+    Utility.msg_prim(string.format(
+        "Absolute time format will be used for repops over %d minute%s.",
+        threshold, threshold > 1 and "s" or ""
+    ))
 end
 ]]>
 </script>
@@ -600,7 +638,9 @@ function Time.format_absolute_repop(senseData)
 end
 
 function Time.format_repop(senseData, now)
-    if (senseData.nextRepop - now > 1800) then
+    local absoluteThreshold = Config.get("absoluteThreshold")
+    if (absoluteThreshold > 0
+    and senseData.nextRepop - now > absoluteThreshold) then
         return Time.format_absolute_repop(senseData, now)
     end
     return Time.format_relative_repop(senseData, now)
