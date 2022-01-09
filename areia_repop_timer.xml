@@ -11,7 +11,7 @@
     save_state="y"
     date_written="2021-12-30 15:00:00"
     requires="5.06"
-    version="0.04"
+    version="0.05"
     >
 <description trim="y">
 <![CDATA[
@@ -885,7 +885,7 @@ end
 
 function OnPluginBroadcast(msg, id, name, text)
     if (id == "3e7dedbe37e44942dd46d264" and text == "comm.repop") then
-        GMCP.repop()
+        GMCP.event_repop()
     end
 end
 ]]>
