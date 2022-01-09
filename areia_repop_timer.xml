@@ -244,36 +244,27 @@ end
 
 <aliases>
     <alias
-        match="^ *art +track *$"
+        match="^ *art +time *$"
         enabled="y"
-        script="Timer.track"
+        script="Tracker.track"
         regexp="y"
         ignore_case="y"
         sequence="100"
     >
     </alias>
     <alias
-        match="^ *art +check *$"
+        match="^ *art +time +(?<zone>\w+) *$"
         enabled="y"
-        script="Timer.check"
+        script="Tracker.track"
         regexp="y"
         ignore_case="y"
         sequence="100"
     >
     </alias>
     <alias
-        match="^ *art +check *(?<zone>\w+) *$"
+        match="^ *art +time +(?<zone>\w+) +(?<channel>\w.*\w) *$"
         enabled="y"
-        script="Timer.check"
-        regexp="y"
-        ignore_case="y"
-        sequence="100"
-    >
-    </alias>
-    <alias
-        match="^ *art +check *(?<zone>\w+) *(?<channel>\w.*\w) *$"
-        enabled="y"
-        script="Timer.check"
+        script="Tracker.track"
         regexp="y"
         ignore_case="y"
         sequence="100"
@@ -283,7 +274,7 @@ end
     <alias
         match="^ *art +reset *$"
         enabled="y"
-        script="Timer.reset"
+        script="Tracker.reset"
         regexp="y"
         ignore_case="y"
         sequence="100"
@@ -292,7 +283,7 @@ end
     <alias
         match="^ *art +reset +(?<zone>\w+) *$"
         enabled="y"
-        script="Timer.reset"
+        script="Tracker.reset"
         regexp="y"
         ignore_case="y"
         sequence="100"
@@ -300,31 +291,93 @@ end
     </alias>
 </aliases>
 
+<script>
+<![CDATA[
+--------------------------------------------------
+-- Tracker
+--------------------------------------------------
+
+Tracker = {}
+
+function Tracker.refresh_data()
+    local now = os.time()
+    Sense.refresh_times(now)
+    GMCP.refresh_repop(now)
+end
+
+function Tracker.announce_repop(zone, channel)
+    if (not zone) then
+        return
+    end
+
+    local msg = Time.get_repop(zone)
+    channel = channel and channel:lower() or Config.get("channel")
+    if (channel == "") then
+        Utility.msg_prim(msg)
+        return
+    end
+    Execute(string.format("%s %s", channel, msg))
+end
+
+function Tracker.track(alias, line, wc)
+    local channel = wc.channel
+    local zone = wc.zone
+    Tracker.refresh_data()
+
+    -- Default to the current area. If no sense data for that zone
+    -- is stored, then sense life. If there is sense data for that
+    -- zone, or if a zone arg was given, then announce the repop.
+    if (not zone) then
+        zone = GMCP.get_zone()
+        if (not Sense.times[zone]) then
+            Sense.life()
+            return
+        end
+    end
+
+    zone = Config.check_zone_alias(zone)
+    Tracker.announce_repop(zone, channel)
+end
+
+function Tracker.reset(alias, line, wc)
+    local zone = wc.zone and Config.check_zone_alias(wc.zone) or nil
+    Sense.clear_times(zone)
+    GMCP.clear_repop(zone)
+
+    local msg = "Reset repop data for %s."
+    msg = msg:format(zone and Utility.pascal_case(zone) or "all areas")
+    Utility.msg_prim(msg)
+end
+]]>
+</script>
+
+
+
 <triggers>
     <trigger
-        group="trigger_group_sense"
+        group="triggerg_sense_life"
         match="^You are in area : (?<areaName>.+)$"
         enabled="n"
-        script="Timer.get_area"
+        script="Sense.area"
         regexp="y"
         sequence="100"
     >
     </trigger>
 
     <trigger
-        group="trigger_group_sense"
+        group="triggerg_sense_life"
         match="^You sense that life will return to this area in roughly (\d+)-(\d+) minutes\.$"
         enabled="n"
-        script="Timer.get_minutes"
+        script="Sense.minutes"
         regexp="y"
         sequence="100"
     >
     </trigger>
     <trigger
-        group="trigger_group_sense"
+        group="triggerg_sense_life"
         match="^You sense that life will return to this area within (.+)\.$"
         enabled="n"
-        script="Timer.get_seconds"
+        script="Sense.seconds"
         regexp="y"
         sequence="100"
     >
@@ -334,48 +387,132 @@ end
 <script>
 <![CDATA[
 --------------------------------------------------
--- Timer
+-- Sense Life
 --------------------------------------------------
 
-Timer = {}
+Sense = {}
 
-function Timer.initialize()
-    -- Capture full area name from 'where' here
-    Timer.areaName = ""
-
-    --[[ Structure of each element in Timer.senseTimes:
+function Sense.initialize()
+    --[[ Structure of each element in Sense.times:
     zone = {
         areaName = string, -- Full area name
         nextRepop = number, -- Time of next repop
         certain = bool, -- Weather nextRepop is calculated from previous repop
     }
     ]]
-    Timer.senseTimes = {} 
+    Sense.times = {}
 end
 
-function Timer.clear_sense(zone)
+function Sense.clear_times(zone)
     if (zone) then
-        Timer.senseTimes[zone] = nil
+        Sense.times[zone] = nil
         return
     end
-    Timer.senseTimes = {}
+    Sense.times = {}
 end
 
-function Timer.refresh_sense(time)
-    for zone, senseData in pairs(Timer.senseTimes) do
+function Sense.refresh_times(time)
+    for zone, senseData in pairs(Sense.times) do
         if (time >= senseData.nextRepop) then
-            Timer.clear_sense(zone)
+            Sense.clear_times(zone)
         end
     end
 end
 
-function Timer.refresh_data()
-    local now = os.time()
-    Timer.refresh_sense(now)
-    GMCP.refresh_repop(now)
+function Sense.life()
+    if (not GMCP.state_active()) then
+        Utility.msg_prim("You must be active to sense life.")
+        return
+    end
+    if (not GMCP.is_ranger()) then
+        Utility.msg_prim("Only rangers can sense life.")
+        return
+    end
+
+    EnableTriggerGroup("triggerg_sense_life", true)
+    SendNoEcho("where")
+    SendNoEcho("cast 'sense life'")
 end
 
-function Timer.add_timer(name, minute, second, script)
+function Sense.area(trigger, line, wc)
+    Sense.currentAreaName = trim(wc.areaName)
+end
+
+function Sense.minutes(trigger, line, wc)
+    local now = os.time()
+    local zone = GMCP.get_zone()
+    local previousRepop = GMCP.repopTimes[zone]
+    local senseData = {}
+    local nextRepop = 0
+    local certain = false
+    local timerMinutes, timerSeconds = 0, 0
+
+    if (previousRepop) then
+        certain = true
+        local seconds = (previousRepop - now) % 60
+        nextRepop = now + (60 * tonumber(wc[1])) + seconds
+        local timerAllSeconds = nextRepop - now - 30
+        timerMinutes = math.floor(timerAllSeconds / 60)
+        timerSeconds = timerAllSeconds % 60
+    else
+        nextRepop = now + (60 * tonumber(wc[2]))
+        timerMinutes = tonumber(wc[1])
+    end
+
+    Time.add_timer(
+        string.format("repop_%s", zone),
+        timerMinutes, timerSeconds,
+        string.format("Execute('art check %s')", zone)
+    )
+
+    senseData.areaName = Sense.currentAreaName
+    senseData.nextRepop = nextRepop
+    senseData.certain = certain
+    Sense.times[zone] = senseData
+
+    EnableTriggerGroup("triggerg_sense_life", false)
+    Tracker.announce_repop(zone)
+end
+
+function Sense.seconds(trigger, line, wc)
+    local now = os.time()
+    local zone = GMCP.get_zone()
+    local previousRepop = GMCP.repopTimes[zone]
+    local senseData = {}
+    local nextRepop = now
+    local certain = false
+    local repopInNextSeconds = 0
+
+    if (previousRepop) then
+        certain = true
+        repopInNextSeconds = (previousRepop - now) % 60
+    else
+        repopInNextSeconds = wc[1] == "the next 30 seconds" and 30 or 60
+    end
+
+    nextRepop = nextRepop + repopInNextSeconds
+    senseData.areaName = Sense.currentAreaName
+    senseData.nextRepop = nextRepop
+    senseData.certain = certain
+    Sense.times[zone] = senseData
+
+    EnableTriggerGroup("triggerg_sense_life", false)
+    Tracker.announce_repop(zone)
+end
+]]>
+</script>
+
+
+
+<script>
+<![CDATA[
+--------------------------------------------------
+-- Time
+--------------------------------------------------
+
+Time = {}
+
+function Time.add_timer(name, minute, second, script)
     if (not Config.get("notify") or minute > 59 or second >= 60) then
         -- Invalid min/sec values, but possible to receive these for
         -- very long repop times. Probably don't want to create a
@@ -397,7 +534,7 @@ function Timer.add_timer(name, minute, second, script)
     SetTimerOption(fullName, "send_to", sendto.script)
 end
 
-function Timer.convert_relative_time(time)
+function Time.convert_relative_time(time)
     local day, hour, minute, second = 0, 0, 0, 0
 
     local dayLength = 60 * 60 * 24
@@ -422,8 +559,8 @@ function Timer.convert_relative_time(time)
     return {day=day, hour=hour, minute=minute, second=second}
 end
 
-function Timer.format_relative_repop(senseData, now)
-    local conversion = Timer.convert_relative_time(senseData.nextRepop - now)
+function Time.format_relative_repop(senseData, now)
+    local conversion = Time.convert_relative_time(senseData.nextRepop - now)
     local approximate = senseData.certain and "" or "approximately "
     local timeSpans = {}
 
@@ -444,16 +581,16 @@ function Timer.format_relative_repop(senseData, now)
     return string.format("in %s@Y%s", approximate, timeSpans)
 end
 
-function Timer.convert_absolute_time(time)
+function Time.convert_absolute_time(time)
     return os.date("*t", time)
 end
 
-function Timer.format_absolute_repop(senseData)
+function Time.format_absolute_repop(senseData)
     local months = {
         "Jan", "Feb", "Mar", "May", "Jun", "Jul",
         "Aug", "Sep", "Oct", "Nov", "Dec",
     }
-    local conversion = Timer.convert_absolute_time(senseData.nextRepop)
+    local conversion = Time.convert_absolute_time(senseData.nextRepop)
     local approximate = senseData.certain and "" or "approximately "
     local str = "at %s@Y%02d:%02d:%02d on %d %s %d"
     return str:format(
@@ -462,132 +599,28 @@ function Timer.format_absolute_repop(senseData)
     )
 end
 
-function Timer.format_repop(senseData, now)
+function Time.format_repop(senseData, now)
     if (senseData.nextRepop - now > 1800) then
-        return Timer.format_absolute_repop(senseData, now)
+        return Time.format_absolute_repop(senseData, now)
     end
-    return Timer.format_relative_repop(senseData, now)
+    return Time.format_relative_repop(senseData, now)
 end
 
-function Timer.get_area(trigger, line, wc)
-    Timer.areaName = trim(wc.areaName)
-end
-
-function Timer.get_minutes(trigger, line, wc)
+function Time.get_repop(zone)
     local now = os.time()
-    local zone = GMCP.get_zone()
-    local previousRepop = GMCP.repopTimes[zone]
-    local senseData = {}
-    local nextRepop = 0
-    local certain = false
-    local timerMinutes, timerSeconds = 0, 0
-
-    if (previousRepop) then
-        certain = true
-        local seconds = (previousRepop - now) % 60
-        nextRepop = now + (60 * tonumber(wc[1])) + seconds
-        local timerAllSeconds = nextRepop - now - 30
-        timerMinutes = math.floor(timerAllSeconds / 60)
-        timerSeconds = timerAllSeconds % 60
-    else
-        nextRepop = now + (60 * tonumber(wc[2]))
-        timerMinutes = tonumber(wc[1])
-    end
-
-    Timer.add_timer(
-        string.format("repop_%s", zone),
-        timerMinutes, timerSeconds,
-        string.format("Execute('art check %s')", zone)
-    )
-
-    senseData.areaName = Timer.areaName
-    senseData.nextRepop = nextRepop
-    senseData.certain = certain
-    Timer.senseTimes[zone] = senseData
-
-    Timer.check()
-    EnableTriggerGroup("trigger_group_sense", false)
-end
-
-function Timer.get_seconds(trigger, line, wc)
-    local now = os.time()
-    local zone = GMCP.get_zone()
-    local previousRepop = GMCP.repopTimes[zone]
-    local senseData = {}
-    local nextRepop = now
-    local certain = false
-    local repopInNextSeconds = 0
-
-    if (previousRepop) then
-        certain = true
-        repopInNextSeconds = (previousRepop - now) % 60
-    else
-        repopInNextSeconds = wc[1] == "the next 30 seconds" and 30 or 60
-    end
-
-    nextRepop = nextRepop + repopInNextSeconds
-    senseData.areaName = Timer.areaName
-    senseData.nextRepop = nextRepop
-    senseData.certain = certain
-    Timer.senseTimes[zone] = senseData
-
-    Timer.check()
-    EnableTriggerGroup("trigger_group_sense", false)
-end
-
-function Timer.track(alias, line, wc)
-    Timer.refresh_data()
-    local zone = GMCP.get_zone()
-
-    if (Timer.senseTimes[zone]) then
-        Timer.check()
-        return
-    end
-
-    EnableTriggerGroup("trigger_group_sense", true)
-    SendNoEcho("where")
-    SendNoEcho("cast 'sense life'")
-end
-
-function Timer.get_repop(zone)
-    local now = os.time()
-    local senseData = Timer.senseTimes[zone]
+    local senseData = Sense.times[zone]
     zone = Utility.pascal_case(zone)
-    Timer.refresh_data()
+    Tracker.refresh_data()
 
     if (not senseData) then
         return string.format("@WNo repop data for %s.$C", zone)
     end
 
-    local formattedRepop = Timer.format_repop(senseData, now)
+    local formattedRepop = Time.format_repop(senseData, now)
     return string.format(
         "@WRepop of %s %s@W.$C",
         senseData.areaName, formattedRepop
     )
-end
-
-function Timer.check(alias, line, wc)
-    wc = wc or {}
-    local channel = wc.channel and wc.channel:lower() or Config.get("channel")
-    local zone = wc.zone and wc.zone:lower() or GMCP.get_zone()
-    zone = Config.check_zone_alias(zone)
-    local msg = Timer.get_repop(zone)
-
-    if (channel == "") then
-        Utility.msg_prim(msg)
-        return
-    end
-    Execute(string.format("%s %s", channel, msg))
-end
-
-function Timer.reset(alias, line, wc)
-    local zone = wc.zone and Config.check_zone_alias(wc.zone) or nil
-    Timer.clear_sense(zone)
-    GMCP.clear_repop(zone)
-
-    local msg = "Reset repop data for %s."
-    msg = msg:format(zone and Utility.pascal_case(zone) or "all areas")
-    Utility.msg_prim(msg)
 end
 ]]>
 </script>
@@ -610,6 +643,16 @@ function GMCP.get_zone()
     return gmcp("room.info.zone")
 end
 
+function GMCP.is_ranger()
+    local classes = gmcp("char.base.classes")
+    classes = classes and classes or ""
+    return classes:match("4") and true or false
+end
+
+function GMCP.state_active()
+    return gmcp("char.status.state") == "3"
+end
+
 function GMCP.clear_repop(zone)
     if (zone) then
         GMCP.repopTimes[zone] = nil
@@ -626,11 +669,11 @@ function GMCP.refresh_repop(time)
     end
 end
 
-function GMCP.repop()
-    local zone = GMCP.get_zone()
+function GMCP.event_repop()
     local now = os.time()
+    local zone = GMCP.get_zone()
     GMCP.repopTimes[zone] = now
-    Timer.senseTimes[zone] = nil
+    Sense.clear_times(zone)
 end
 ]]>
 </script>
@@ -706,8 +749,8 @@ Utility = {}
 function Utility.initialize()
     local modules = {
         Config,
+        Sense,
         GMCP,
-        Timer,
     }
     for _, module in ipairs(modules) do
         if (module.initialize) then
