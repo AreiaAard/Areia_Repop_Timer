@@ -11,7 +11,7 @@
     save_state="y"
     date_written="2021-12-30 15:00:00"
     requires="5.06"
-    version="0.10"
+    version="0.11"
     >
 <description trim="y">
 <![CDATA[
@@ -635,10 +635,10 @@ function Time.format_absolute_repop(senseData)
     }
     local conversion = Time.convert_absolute_time(senseData.nextRepop)
     local approximate = senseData.certain and "" or "approximately "
-    local str = "at %s@Y%02d:%02d:%02d on %d %s %d"
+    local str = "at %s@Y%02d:%02d:%02d on %d %s"
     return str:format(
         approximate, conversion.hour, conversion.min, conversion.sec,
-        conversion.day, months[conversion.month], conversion.year
+        conversion.day, months[conversion.month]
     )
 end
 
