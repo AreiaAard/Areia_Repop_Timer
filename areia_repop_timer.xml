@@ -11,7 +11,7 @@
     save_state="y"
     date_written="2021-12-30 15:00:00"
     requires="5.06"
-    version="1.00"
+    version="1.01"
     >
 <description trim="y">
 <![CDATA[
@@ -505,7 +505,7 @@ function Sense.minutes(trigger, line, wc)
     Time.add_timer(
         string.format("repop_%s", zone),
         timerMinutes, timerSeconds,
-        string.format("Execute('art check %s')", zone)
+        string.format("Execute('art time %s')", zone)
     )
 
     senseData.areaName = Sense.currentAreaName
