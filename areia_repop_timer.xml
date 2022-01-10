@@ -11,10 +11,15 @@
     save_state="y"
     date_written="2021-12-30 15:00:00"
     requires="5.06"
-    version="0.05"
+    version="0.10"
     >
 <description trim="y">
 <![CDATA[
+Abbreviated Help
+
+art help : display main plugin help
+art time : Track your current area's repop
+art reset: Reset all repop/sense data
 ]]>
 </description>
 
@@ -778,6 +783,164 @@ end
 
 
 
+<aliases>
+    <alias
+        match="^ *art +help *$"
+        enabled="y"
+        script="Help.main"
+        regexp="y"
+        ignore_case="y"
+        sequence="100"
+    >
+    </alias>
+    <alias
+        match="^ *art +help +(?<topic>\w+) *$"
+        enabled="y"
+        script="Help.main"
+        regexp="y"
+        ignore_case="y"
+        sequence="100"
+    >
+    </alias>
+</aliases>
+
+<script>
+<![CDATA[
+--------------------------------------------------
+-- Help
+--------------------------------------------------
+
+Help = {}
+
+function Help.initialize()
+    Help.topics = {
+        {
+            name = "config",
+            desc = "Plugin configuration options",
+            func = Help.config,
+        },
+        {
+            name = "time",
+            desc = "Obtain/display area repop times",
+            func = Help.time,
+        },
+        {
+            name = "misc",
+            desc = "Other plugin commands",
+            func = Help.misc,
+        },
+    }
+end
+
+function Help.display_helpfile(title, body)
+    local fullTitle = string.format("@WRepop Timer Help - %s", title)
+    Utility.print(Utility.center(fullTitle, 80))
+    Utility.print(string.rep("=", 80))
+    Utility.print(body)
+end
+
+function Help.main(alias, line, wc)
+    local topicName = wc.topic
+    if (not topicName) then
+        Help.list_topics()
+        return
+    end
+
+    topicName = topicName:lower()
+    for _, topic in ipairs(Help.topics) do
+        if (Utility.starts_with(topic.name, topicName)) then
+            topic.func()
+            return
+        end
+    end
+
+    Utility.msg_prim(string.format(
+        "%s is not a valid help topic.",
+        Utility.pascal_case(topicName)
+    ))
+    Help.list_topics()
+end
+
+function Help.list_topics()
+    Utility.print(Utility.center("Repop Timer Help - Topics", 80))
+    Utility.print(string.rep("=", 80))
+
+    for _, topic in ipairs(Help.topics) do
+        local cmd = string.format("art help %-10.10s", topic.name)
+        Hyperlink(trim(cmd), cmd, "", "yellow", "black", false, true)
+        ColourNote("silver", "black", ": ", "", "", topic.desc)
+        Note()
+    end
+
+    Utility.print("Click on or type one of the above to view help.")
+end
+
+function Help.config()
+    local body = [===[
+            @YSyntax: art config channel [<channel>]
+            Syntax: art config notify [on|off]
+            Syntax: art config absolute [<minutes>]
+            Syntax: art config alias [[<alias>] <zone>]
+@wThese commands handle the various ways in which you interact with and get out-
+put from the plugin.
+The 'channel' option allows you to set the default channel on which repop times
+will be displayed. Default behavior is to show these messages with a simple
+MushClient Note. Use art config chan default to reset this back to the default.
+You can configure whether or not to show a warning message briefly before an
+area which you have timed is to repop with the 'notify' setting.
+The 'absolute' option lets you display repop times in an absolute format (e.g.,
+'at <time> on <day>') rather than a relative one (e.g., 'in <time> from now').
+This is mainly to save your having to do math to tell when a very long repop
+is going to happen. Provide a number of minutes (default is 60), and whenever
+the plugin detects a repop longer than that, it will display it in absolute
+rather than a relative format. Supply 0 to turn this feature off.
+Finally, you can define your own zone aliases to make using the plugin a little
+bit easier. For example, suppose you often like to keep track of Nyne's repops,
+but it would be much to have to type art time nynewoods all the time. Instead,
+define a zone alias like 'nw' by entering @Yart config alias nw nynewoods@w. Then,
+you can check Nyne's repop by entering @Yart time nw@w. To remove that alias, sub-
+mit @Yart config alias nw remove@w.
+]===]
+    Help.display_helpfile("Config", body)
+end
+
+function Help.time()
+    local body = [===[
+            Syntax: art time [[<zone>] <channel>]
+            Syntax: art reset [<zone>]
+Here is the plugin's main functionality. The script depends on the output of
+the sense life spell, so if that is not available to you, you will not be able
+to track repops.
+To get the repop of your current area, simply type @Yart time@w. If the plugin
+does not have any sense life info for the area's current repop, then it will
+cast the spell. Otherwise, it will simply give you an updated estimate of the
+next repop time.
+You can also check the repop of an area other than your current area (assuming
+the plugin has sense life info for that zone) by submitting @Yart time <zone>@w;
+'<zone>' here refers to the area's keyword (e.g., 'siege' for Kobold Siege Camp)
+or a zone alias that you have defined (see @Yart help config@w).
+To send the repop time to a channel other than your configured default, enter
+@Yart time <zone> <channel>@w.
+Finally, sometimes you might want to reset data for one or all zones in order
+to recheck sense life output. To reset all zones' data, type @Yart reset@w. Adding
+the zone argument will reset info for only that zone. You can use zone aliases
+here, too.
+]===]
+    Help.display_helpfile("Time", body)
+end
+
+function Help.misc()
+    local body = [===[
+@Yart update    @w: Checks for an updated version of the plugin and installs it
+                if found.
+]===]
+    Help.display_helpfile("Misc", body)
+end
+]]>
+</script>
+
+
+
 <script>
 <![CDATA[
 --------------------------------------------------
@@ -791,6 +954,7 @@ function Utility.initialize()
         Config,
         Sense,
         GMCP,
+        Help,
     }
     for _, module in ipairs(modules) do
         if (module.initialize) then
@@ -847,6 +1011,18 @@ function Utility.reload_plugin()
     local cmd = "%sDoAfterSpecial(1, \"ReloadPlugin('%s')\", sendto.script)"
     Utility.msg_prim("Reloading...")
     Execute(cmd:format(scriptPrefix, pluginID))
+end
+
+function Utility.center(str, lineLength, fill)
+    local centerLength = #strip_colours(str)
+    if (centerLength >= lineLength) then
+        return str
+    end
+    local leftLength = math.floor((lineLength - centerLength) / 2)
+    local rightLength = lineLength - centerLength - leftLength
+    fill = fill or " "
+    local centered = "%s%s%s"
+    return centered:format(fill:rep(leftLength), str, fill:rep(rightLength))
 end
 ]]>
 </script>
