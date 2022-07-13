@@ -11,7 +11,7 @@
     save_state="y"
     date_written="2021-12-30 15:00:00"
     requires="5.06"
-    version="1.01"
+    version="1.02"
     >
 <description trim="y">
 <![CDATA[
@@ -630,8 +630,8 @@ end
 
 function Time.format_absolute_repop(senseData)
     local months = {
-        "Jan", "Feb", "Mar", "May", "Jun", "Jul",
-        "Aug", "Sep", "Oct", "Nov", "Dec",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     }
     local conversion = Time.convert_absolute_time(senseData.nextRepop)
     local approximate = senseData.certain and "" or "approximately "
